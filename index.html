@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>퍼펙트 학급 상점 키오스크</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Jua&family=Nanum+Gothic:wght@400;700&display=swap');
+        body { font-family: 'Nanum Gothic', sans-serif; background-color: #f3f4f6; user-select: none; }
+        .font-jua { font-family: 'Jua', sans-serif; }
+        /* 스크롤바 숨기기 */
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .item-card:active { transform: scale(0.98); }
+        .toast { transition: opacity 0.3s, transform 0.3s; }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- ==== 설정 ==== -->
+    <script>
+        // ★ 여기에 Google Apps Script 배포 URL을 넣으세요 ★
+        // URL이 비어있으면 자동으로 '데모 모드'로 작동하여 UI 테스트가 가능합니다.
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyOGdmoHa7zC7BvO9-TegkC3WtS5bV8UsBnzFvUdDNPKlUdUS6nZl2jcQu0A3F23jVe/exec
+"; 
+    </script>
+
+    <!-- Header -->
+    <header class="bg-indigo-600 text-white p-4 shadow-md flex justify-between items-center z-10 shrink-0">
+        <div class="flex items-center gap-3">
+            <i class="ph-fill ph-storefront text-3xl"></i>
+            <h1 class="text-2xl font-jua tracking-wide mt-1" id="main-title">우리 반 무인 상점</h1>
+        </div>
+        <div class="flex gap-2">
+            <button id="btn-shop" class="bg-white text-indigo-600 px-4 py-2 rounded-lg font-bold shadow hover:bg-indigo-50 transition hidden" onclick="switchView('shop')">
+                <i class="ph ph-shopping-cart align-middle mr-1"></i> 상점 가기
+            </button>
+            <button id="btn-admin" class="bg-indigo-800 text-white px-4 py-2 rounded-lg font-bold shadow hover:bg-indigo-900 transition" onclick="showAdminLogin()">
+                <i class="ph ph-lock-key align-middle mr-1"></i> 관리자
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto relative p-4 lg:p-8">
+        
+        <!-- 로딩 오버레이 -->
+        <div id="loading" class="absolute inset-0 bg-white/80 z-50 flex flex-col items-center justify-center hidden glass-panel">
+            <i class="ph ph-spinner-gap animate-spin text-indigo-600 text-6xl mb-4"></i>
+            <p class="text-xl font-bold text-gray-700 animate-pulse">데이터를 불러오는 중입니다...</p>
+        </div>
+
+        <!-- ==================== 1. 상점 (키오스크) 뷰 ==================== -->
+        <div id="view-shop" class="h-full flex flex-col max-w-6xl mx-auto">
+            <div class="text-center mb-6">
+                <h2 class="text-3xl font-jua text-indigo-800">원하는 물건을 터치하세요!</h2>
+                <p class="text-gray-500 mt-2">재고가 없는 상품은 구매할 수 없습니다.</p>
+            </div>
+            
+            <!-- 물품 그리드 -->
+            <div id="item-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-10">
+                <!-- JS로 렌더링 됨 -->
+            </div>
+        </div>
+
+        <!-- ==================== 2. 관리자 대시보드 뷰 ==================== -->
+        <div id="view-admin" class="hidden h-full flex flex-col max-w-7xl mx-auto">
+            <div class="flex gap-4 mb-6">
+                <button class="admin-tab active flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg text-lg" onclick="switchAdminTab('stats', this)">📊 판매 통계</button>
+                <button class="admin-tab flex-1 bg-white text-gray-600 py-3 rounded-xl font-bold shadow text-lg" onclick="switchAdminTab('manage', this)">📦 물품 관리</button>
+            </div>
+
+            <!-- 통계 탭 -->
+            <div id="tab-stats" class="flex-1 overflow-y-auto pb-10">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- 매출 요약 카드 -->
+                    <div class="col-span-1 lg:col-span-3 grid grid-cols-3 gap-4">
+                        <div class="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-indigo-500">
+                            <p class="text-gray-500 text-sm font-bold">총 판매 건수</p>
+                            <p class="text-3xl font-jua text-indigo-700 mt-1" id="stat-total-sales">0건</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-green-500">
+                            <p class="text-gray-500 text-sm font-bold">총 매출액</p>
+                            <p class="text-3xl font-jua text-green-700 mt-1" id="stat-total-revenue">0원</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-yellow-500">
+                            <p class="text-gray-500 text-sm font-bold">가장 인기있는 상품</p>
+                            <p class="text-3xl font-jua text-yellow-700 mt-1" id="stat-best-item">-</p>
+                        </div>
+                    </div>
+
+                    <!-- 차트 1: 인기 상품 (Pie) -->
+                    <div class="bg-white p-4 rounded-2xl shadow-sm flex flex-col items-center">
+                        <h3 class="font-bold text-gray-700 mb-2">인기 상품 비율 (판매량)</h3>
+                        <div class="w-full h-64 relative"><canvas id="pieChart"></canvas></div>
+                    </div>
+
+                    <!-- 차트 2: 요일별 판매량 (Bar) -->
+                    <div class="bg-white p-4 rounded-2xl shadow-sm flex flex-col items-center">
+                        <h3 class="font-bold text-gray-700 mb-2">요일별 판매량</h3>
+                        <div class="w-full h-64 relative"><canvas id="barChart"></canvas></div>
+                    </div>
+
+                    <!-- 차트 3: 최근 매출 추이 (Line) -->
+                    <div class="bg-white p-4 rounded-2xl shadow-sm flex flex-col items-center">
+                        <h3 class="font-bold text-gray-700 mb-2">일별 매출액 추이</h3>
+                        <div class="w-full h-64 relative"><canvas id="lineChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 물품 관리 탭 -->
+            <div id="tab-manage" class="hidden flex-1 overflow-y-auto pb-10">
+                <div class="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+                    <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                        <h3 class="font-bold text-gray-700 text-lg">판매 물품 목록</h3>
+                        <button onclick="showAddItemModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition">
+                            + 새 물품 추가
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-100 text-gray-600 text-sm">
+                                    <th class="p-3 border-b">이모지</th>
+                                    <th class="p-3 border-b">물품명</th>
+                                    <th class="p-3 border-b">가격(원)</th>
+                                    <th class="p-3 border-b">재고(개)</th>
+                                    <th class="p-3 border-b text-center">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-item-list" class="text-gray-700">
+                                <!-- JS로 렌더링 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ==================== 모달 창 모음 ==================== -->
+
+    <!-- 구매 확인 모달 -->
+    <div id="modal-buy" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-white w-11/12 max-w-md rounded-3xl shadow-2xl overflow-hidden transform scale-95 transition-transform duration-300" id="modal-buy-content">
+            <div class="bg-indigo-600 p-4 text-center">
+                <h3 class="text-2xl font-jua text-white">물품 구매하기</h3>
+            </div>
+            <div class="p-6 flex flex-col items-center">
+                <div id="buy-emoji" class="text-6xl mb-2">🍎</div>
+                <h4 id="buy-name" class="text-2xl font-bold text-gray-800">사과</h4>
+                <p id="buy-price" class="text-indigo-600 font-bold text-xl mt-1">500원</p>
+                
+                <div class="w-full mt-6">
+                    <label class="block text-gray-700 font-bold mb-2">학생 번호(학번)를 입력하세요</label>
+                    <input type="number" id="buy-student-id" placeholder="예: 15" class="w-full p-4 border-2 border-gray-300 rounded-xl text-center text-2xl font-bold focus:border-indigo-500 focus:outline-none transition">
+                </div>
+            </div>
+            <div class="p-4 bg-gray-50 flex gap-3">
+                <button onclick="closeModal('modal-buy')" class="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-200 hover:bg-gray-300 transition">취소</button>
+                <button onclick="executePurchase()" class="flex-1 py-3 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition">구매 확정</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 로그인 모달 -->
+    <div id="modal-admin-login" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center hidden opacity-0 transition-opacity">
+        <div class="bg-white w-80 rounded-3xl shadow-2xl overflow-hidden p-6 text-center transform scale-95 transition-transform">
+            <i class="ph-fill ph-lock-key text-5xl text-indigo-600 mb-2"></i>
+            <h3 class="text-xl font-bold text-gray-800 mb-4">관리자 암호 입력</h3>
+            <input type="password" id="admin-pin" placeholder="PIN 번호" class="w-full p-3 border-2 border-gray-300 rounded-xl text-center text-xl font-bold focus:border-indigo-500 focus:outline-none mb-4" onkeypress="if(event.key === 'Enter') checkAdminPin()">
+            <div class="flex gap-2">
+                <button onclick="closeModal('modal-admin-login')" class="flex-1 py-2 rounded-xl font-bold text-gray-600 bg-gray-200">취소</button>
+                <button onclick="checkAdminPin()" class="flex-1 py-2 rounded-xl font-bold text-white bg-indigo-600">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 물품 추가 모달 -->
+    <div id="modal-add-item" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden opacity-0 transition-opacity">
+        <div class="bg-white w-11/12 max-w-sm rounded-3xl shadow-2xl p-6 transform scale-95 transition-transform">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">새 물품 추가</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700">물품 이름</label>
+                    <input type="text" id="add-name" class="w-full p-2 border rounded-lg mt-1" placeholder="예: 연필">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700">이모지 (아이콘)</label>
+                    <input type="text" id="add-emoji" class="w-full p-2 border rounded-lg mt-1" placeholder="예: ✏️">
+                </div>
+                <div class="flex gap-4">
+                    <div class="flex-1">
+                        <label class="block text-sm font-bold text-gray-700">가격</label>
+                        <input type="number" id="add-price" class="w-full p-2 border rounded-lg mt-1" placeholder="500">
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-sm font-bold text-gray-700">초기 재고</label>
+                        <input type="number" id="add-stock" class="w-full p-2 border rounded-lg mt-1" placeholder="10">
+                    </div>
+                </div>
+            </div>
+            <div class="mt-6 flex gap-2">
+                <button onclick="closeModal('modal-add-item')" class="flex-1 py-2 rounded-xl font-bold text-gray-600 bg-gray-200">취소</button>
+                <button onclick="requestAddItem()" class="flex-1 py-2 rounded-xl font-bold text-white bg-green-600">추가하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 토스트 알림 -->
+    <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full shadow-xl z-[100] opacity-0 pointer-events-none text-lg font-bold flex items-center gap-2">
+        <i class="ph-fill ph-info"></i> <span id="toast-msg">알림 메시지</span>
+    </div>
+
+    <!-- ==================== 스크립트 로직 ==================== -->
+    <script>
+        // 전역 상태
+        let currentItems = [];
+        let currentSales = [];
+        let currentAdminPin = '';
+        let selectedItemId = null;
+        let isDemoMode = GAS_URL === "";
+        let charts = {};
+
+        // 데모 데이터 (GAS 연결 안 되었을 때 사용)
+        let demoData = {
+            items: [
+                {id: '1', name: '지우개', price: 300, stock: 15, emoji: '🧽'},
+                {id: '2', name: '연필 (3자루)', price: 500, stock: 5, emoji: '✏️'},
+                {id: '3', name: '알림장', price: 1000, stock: 0, emoji: '📓'},
+                {id: '4', name: '포켓몬 스티커', price: 800, stock: 20, emoji: '✨'},
+                {id: '5', name: '미니 수첩', price: 1500, stock: 3, emoji: '📒'}
+            ],
+            sales: [
+                {date: new Date(Date.now() - 86400000 * 2).toISOString(), studentId: '5', itemId: '1', itemName: '지우개', price: 300},
+                {date: new Date(Date.now() - 86400000 * 2).toISOString(), studentId: '12', itemId: '4', itemName: '포켓몬 스티커', price: 800},
+                {date: new Date(Date.now() - 86400000 * 1).toISOString(), studentId: '3', itemId: '2', itemName: '연필 (3자루)', price: 500},
+                {date: new Date().toISOString(), studentId: '7', itemId: '4', itemName: '포켓몬 스티커', price: 800},
+                {date: new Date().toISOString(), studentId: '1', itemId: '5', itemName: '미니 수첩', price: 1500}
+            ],
+            pin: '1234'
+        };
+
+        // 초기화
+        window.onload = () => {
+            if (isDemoMode) {
+                showToast("⚠️ GAS URL이 없어 데모 모드로 작동합니다.", 4000);
+            }
+            loadItems();
+        };
+
+        // UI 뷰 전환
+        function switchView(viewName) {
+            document.getElementById('view-shop').classList.add('hidden');
+            document.getElementById('view-admin').classList.add('hidden');
+            document.getElementById('btn-shop').classList.add('hidden');
+            document.getElementById('btn-admin').classList.add('hidden');
+
+            if(viewName === 'shop') {
+                document.getElementById('view-shop').classList.remove('hidden');
+                document.getElementById('btn-admin').classList.remove('hidden');
+                document.getElementById('main-title').innerText = "우리 반 무인 상점";
+                loadItems();
+            } else if(viewName === 'admin') {
+                document.getElementById('view-admin').classList.remove('hidden');
+                document.getElementById('btn-shop').classList.remove('hidden');
+                document.getElementById('main-title').innerText = "상점 관리 시스템";
+                loadAdminData();
+            }
+        }
+
+        function switchAdminTab(tabName, btnElement) {
+            document.querySelectorAll('.admin-tab').forEach(el => {
+                el.classList.remove('bg-indigo-600', 'text-white', 'shadow-lg');
+                el.classList.add('bg-white', 'text-gray-600', 'shadow');
+            });
+            btnElement.classList.remove('bg-white', 'text-gray-600', 'shadow');
+            btnElement.classList.add('bg-indigo-600', 'text-white', 'shadow-lg');
+
+            document.getElementById('tab-stats').classList.add('hidden');
+            document.getElementById('tab-manage').classList.add('hidden');
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+        }
+
+        // 로딩 UI
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        // 토스트 알림
+        function showToast(message, duration=2000) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').innerText = message;
+            toast.style.opacity = '1';
+            toast.style.transform = 'translate(-50%, -20px)';
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translate(-50%, 0)';
+            }, duration);
+        }
+
+        // 모달 제어
+        function showModal(id) {
+            const modal = document.getElementById(id);
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                modal.children[0].classList.remove('scale-95');
+            }, 10);
+        }
+        function closeModal(id) {
+            const modal = document.getElementById(id);
+            modal.classList.add('opacity-0');
+            modal.children[0].classList.add('scale-95');
+            setTimeout(() => { modal.classList.add('hidden'); }, 300);
+        }
+
+        // 통신 함수 래퍼
+        async function fetchGAS(payload) {
+            if (isDemoMode) return mockFetchGAS(payload);
+
+            try {
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' } // GAS CORS 우회용
+                });
+                return await response.json();
+            } catch (error) {
+                console.error("Fetch Error:", error);
+                return { success: false, message: "통신 오류가 발생했습니다." };
+            }
+        }
+
+        // 데모 모드 로직
+        function mockFetchGAS(payload) {
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    let result = {success: true};
+                    if (payload.action === 'getItems') {
+                        result.data = demoData.items;
+                    } else if (payload.action === 'buyItem') {
+                        const item = demoData.items.find(i => i.id === payload.itemId);
+                        if(item && item.stock > 0) {
+                            item.stock--;
+                            demoData.sales.push({date: new Date().toISOString(), studentId: payload.studentId, itemId: item.id, itemName: item.name, price: item.price});
+                            result.message = "구매 성공 (데모)";
+                        } else {
+                            result = {success: false, message: "품절이거나 없는 상품"};
+                        }
+                    } else if (payload.action === 'verifyPin') {
+                        result.success = payload.pin === demoData.pin;
+                    } else if (payload.action === 'getAdminData') {
+                        if (payload.pin === demoData.pin) {
+                            result = {success: true, inventory: demoData.items, sales: demoData.sales};
+                        } else {
+                            result = {success: false, message: "PIN 오류"};
+                        }
+                    } else if (payload.action === 'addItem') {
+                        demoData.items.push({...payload.item, id: Date.now().toString()});
+                    } else if (payload.action === 'deleteItem') {
+                        demoData.items = demoData.items.filter(i => i.id !== payload.itemId);
+                    }
+                    resolve(result);
+                }, 500); // 인위적 딜레이
+            });
+        }
+
+        // ================= 상점 로직 =================
+        async function loadItems() {
+            showLoading(true);
+            const res = await fetchGAS({ action: 'getItems' });
+            if (res.success !== false) {
+                currentItems = isDemoMode ? res.data : res;
+                renderShopItems();
+            } else {
+                showToast(res.message);
+            }
+            showLoading(false);
+        }
+
+        function renderShopItems() {
+            const grid = document.getElementById('item-grid');
+            grid.innerHTML = '';
+            
+            if(currentItems.length === 0) {
+                grid.innerHTML = `<div class="col-span-full text-center text-gray-400 py-10">등록된 물품이 없습니다.</div>`;
+                return;
+            }
+
+            currentItems.forEach(item => {
+                const isSoldOut = item.stock <= 0;
+                const card = document.createElement('div');
+                card.className = `item-card bg-white rounded-2xl p-4 flex flex-col items-center justify-between border-2 transition-all shadow-sm
+                    ${isSoldOut ? 'border-gray-200 opacity-60 grayscale' : 'border-transparent hover:border-indigo-300 hover:shadow-md cursor-pointer'}`;
+                
+                if (!isSoldOut) {
+                    card.onclick = () => openBuyModal(item);
+                }
+
+                card.innerHTML = `
+                    <div class="text-5xl my-4">${item.emoji || '📦'}</div>
+                    <div class="text-center w-full">
+                        <h3 class="font-bold text-lg text-gray-800 truncate">${item.name}</h3>
+                        <p class="text-indigo-600 font-bold text-xl my-1">${Number(item.price).toLocaleString()}원</p>
+                        ${isSoldOut 
+                            ? `<span class="inline-block bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full font-bold">품절</span>` 
+                            : `<span class="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full font-bold">남음: ${item.stock}개</span>`
+                        }
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function openBuyModal(item) {
+            selectedItemId = item.id;
+            document.getElementById('buy-emoji').innerText = item.emoji || '📦';
+            document.getElementById('buy-name').innerText = item.name;
+            document.getElementById('buy-price').innerText = `${Number(item.price).toLocaleString()}원`;
+            document.getElementById('buy-student-id').value = '';
+            showModal('modal-buy');
+            setTimeout(() => document.getElementById('buy-student-id').focus(), 300);
+        }
+
+        async function executePurchase() {
+            const studentId = document.getElementById('buy-student-id').value.trim();
+            if (!studentId) {
+                showToast("학생 번호를 입력해주세요.");
+                return;
+            }
+
+            closeModal('modal-buy');
+            showLoading(true);
+
+            const res = await fetchGAS({
+                action: 'buyItem',
+                itemId: selectedItemId,
+                studentId: studentId
+            });
+
+            showLoading(false);
+            if (res.success) {
+                showToast("🎉 성공적으로 구매했습니다!", 3000);
+                loadItems(); // 재고 갱신
+            } else {
+                showToast("❌ 구매 실패: " + res.message, 3000);
+            }
+        }
+
+        // ================= 관리자 로직 =================
+        function showAdminLogin() {
+            document.getElementById('admin-pin').value = '';
+            showModal('modal-admin-login');
+            setTimeout(() => document.getElementById('admin-pin').focus(), 300);
+        }
+
+        async function checkAdminPin() {
+            const pin = document.getElementById('admin-pin').value;
+            if(!pin) return;
+
+            showLoading(true);
+            const res = await fetchGAS({ action: 'verifyPin', pin: pin });
+            showLoading(false);
+
+            if (res.success) {
+                currentAdminPin = pin;
+                closeModal('modal-admin-login');
+                switchView('admin');
+            } else {
+                showToast("❌ 암호가 틀렸습니다.");
+            }
+        }
+
+        async function loadAdminData() {
+            showLoading(true);
+            const res = await fetchGAS({ action: 'getAdminData', pin: currentAdminPin });
+            showLoading(false);
+
+            if (res.success) {
+                currentItems = res.inventory;
+                currentSales = res.sales;
+                renderAdminItems();
+                renderCharts();
+            } else {
+                showToast(res.message);
+                switchView('shop');
+            }
+        }
+
+        function renderAdminItems() {
+            const tbody = document.getElementById('admin-item-list');
+            tbody.innerHTML = '';
+            currentItems.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b hover:bg-gray-50";
+                tr.innerHTML = `
+                    <td class="p-3 text-2xl">${item.emoji || '📦'}</td>
+                    <td class="p-3 font-bold">${item.name}</td>
+                    <td class="p-3">${Number(item.price).toLocaleString()}</td>
+                    <td class="p-3"><span class="${item.stock <= 0 ? 'text-red-500 font-bold' : ''}">${item.stock}</span></td>
+                    <td class="p-3 text-center">
+                        <button onclick="requestDeleteItem('${item.id}')" class="bg-red-100 text-red-600 px-3 py-1 rounded font-bold hover:bg-red-200 text-sm">삭제</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function showAddItemModal() {
+            document.getElementById('add-name').value = '';
+            document.getElementById('add-emoji').value = '';
+            document.getElementById('add-price').value = '';
+            document.getElementById('add-stock').value = '';
+            showModal('modal-add-item');
+        }
+
+        async function requestAddItem() {
+            const item = {
+                name: document.getElementById('add-name').value.trim(),
+                emoji: document.getElementById('add-emoji').value.trim() || '📦',
+                price: parseInt(document.getElementById('add-price').value),
+                stock: parseInt(document.getElementById('add-stock').value)
+            };
+
+            if(!item.name || isNaN(item.price) || isNaN(item.stock)) {
+                showToast("모든 정보를 올바르게 입력하세요.");
+                return;
+            }
+
+            closeModal('modal-add-item');
+            showLoading(true);
+            const res = await fetchGAS({ action: 'addItem', pin: currentAdminPin, item: item });
+            if(res.success) {
+                showToast("추가 완료!");
+                loadAdminData(); // 데이터 리로드
+            } else {
+                showToast("오류 발생");
+                showLoading(false);
+            }
+        }
+
+        async function requestDeleteItem(itemId) {
+            if(!confirm("정말 이 물품을 삭제하시겠습니까?")) return;
+            showLoading(true);
+            const res = await fetchGAS({ action: 'deleteItem', pin: currentAdminPin, itemId: itemId });
+            if(res.success) {
+                showToast("삭제 완료!");
+                loadAdminData();
+            } else {
+                showToast("오류 발생");
+                showLoading(false);
+            }
+        }
+
+        // ================= 차트(Chart.js) 로직 =================
+        function renderCharts() {
+            // 데이터 가공
+            let totalSalesCount = currentSales.length;
+            let totalRevenue = 0;
+            let itemCounts = {};
+            let dayCounts = {0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0}; // 일(0)~토(6)
+            let dateRevenue = {};
+
+            currentSales.forEach(sale => {
+                totalRevenue += Number(sale.price);
+                
+                // 아이템별 카운트 (파이 차트)
+                itemCounts[sale.itemName] = (itemCounts[sale.itemName] || 0) + 1;
+                
+                // 날짜 객체 파싱
+                const d = new Date(sale.date);
+                if (!isNaN(d)) {
+                    // 요일별 카운트 (바 차트)
+                    dayCounts[d.getDay()]++;
+                    
+                    // 일별 매출 (라인 차트) - MM-DD 포맷
+                    const dateStr = `${d.getMonth()+1}/${d.getDate()}`;
+                    dateRevenue[dateStr] = (dateRevenue[dateStr] || 0) + Number(sale.price);
+                }
+            });
+
+            // 최고 인기 상품 찾기
+            let bestItem = "-";
+            let maxCount = 0;
+            for(let name in itemCounts) {
+                if(itemCounts[name] > maxCount) { maxCount = itemCounts[name]; bestItem = name; }
+            }
+
+            // 요약 업데이트
+            document.getElementById('stat-total-sales').innerText = totalSalesCount + "건";
+            document.getElementById('stat-total-revenue').innerText = totalRevenue.toLocaleString() + "원";
+            document.getElementById('stat-best-item').innerText = bestItem;
+
+            // 기존 차트 파괴 (중복 렌더링 방지)
+            if(charts.pie) charts.pie.destroy();
+            if(charts.bar) charts.bar.destroy();
+            if(charts.line) charts.line.destroy();
+
+            Chart.defaults.font.family = "'Nanum Gothic', sans-serif";
+
+            // 1. 파이 차트 (인기 상품)
+            const pieCtx = document.getElementById('pieChart').getContext('2d');
+            charts.pie = new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(itemCounts),
+                    datasets: [{
+                        data: Object.values(itemCounts),
+                        backgroundColor: ['#4f46e5', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6']
+                    }]
+                },
+                options: { maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+            });
+
+            // 2. 바 차트 (요일별 판매량)
+            const days = ['일', '월', '화', '수', '목', '금', '토'];
+            const barCtx = document.getElementById('barChart').getContext('2d');
+            charts.bar = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: days,
+                    datasets: [{
+                        label: '판매 건수',
+                        data: [dayCounts[0], dayCounts[1], dayCounts[2], dayCounts[3], dayCounts[4], dayCounts[5], dayCounts[6]],
+                        backgroundColor: '#6366f1',
+                        borderRadius: 6
+                    }]
+                },
+                options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+            });
+
+            // 3. 라인 차트 (일별 매출)
+            const dates = Object.keys(dateRevenue).sort();
+            const revenues = dates.map(d => dateRevenue[d]);
+            const lineCtx = document.getElementById('lineChart').getContext('2d');
+            charts.line = new Chart(lineCtx, {
+                type: 'line',
+                data: {
+                    labels: dates.length > 0 ? dates : ['데이터 없음'],
+                    datasets: [{
+                        label: '매출액(원)',
+                        data: revenues.length > 0 ? revenues : [0],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            });
+        }
+    </script>
+</body>
+</html>
